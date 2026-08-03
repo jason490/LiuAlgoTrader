@@ -12,8 +12,18 @@ import pandas as pd
 import pandas_market_calendars
 import pytz
 import requests
-from alpaca_trade_api.rest import REST, URL, APIError, TimeFrame
-from alpaca_trade_api.stream import Stream
+from alpaca.data.enums import Adjustment, DataFeed
+from alpaca.data.historical.crypto import CryptoHistoricalDataClient
+from alpaca.data.historical.stock import StockHistoricalDataClient
+from alpaca.data.live.crypto import CryptoDataStream
+from alpaca.data.live.stock import StockDataStream
+from alpaca.data.requests import (CryptoBarsRequest, StockBarsRequest,
+                                  StockLatestTradeRequest,
+                                  StockSnapshotRequest)
+from alpaca.data.timeframe import TimeFrame
+from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import AssetClass, AssetStatus
+from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
 from dateutil.parser import parse as date_parser
 
 from liualgotrader.common import config
@@ -33,28 +43,31 @@ def _is_crypto_symbol(symbol: str) -> bool:
 
 class AlpacaData(DataAPI):
     def __init__(self):
-        self.alpaca_rest_client = REST(
-            key_id=config.alpaca_api_key, secret_key=config.alpaca_api_secret
+        api_key = config.alpaca_api_key or "PKDUMMYKEY00000000000"
+        secret_key = config.alpaca_api_secret or "SKDUMMYSECRET000000000000000000000000"
+        self.trading_client = TradingClient(
+            api_key=api_key,
+            secret_key=secret_key,
+            paper=True,
         )
-        if not self.alpaca_rest_client:
-            raise AssertionError(
-                "Failed to authenticate Alpaca RESTful client"
-            )
+        self.stock_historical_client = StockHistoricalDataClient(
+            api_key=api_key,
+            secret_key=secret_key,
+        )
+        self.crypto_historical_client = CryptoHistoricalDataClient(
+            api_key=api_key,
+            secret_key=secret_key,
+        )
         # for requesting market snapshots by chunk of symbols
         self.symbol_chunk_size = 1000
         self.datetime_cache: Dict[datetime, datetime] = {}
 
     def get_symbols(self) -> List[str]:
-        if not self.alpaca_rest_client:
-            raise AssertionError("Must call w/ authenticated Alpaca client")
-
-        return [
-            asset.symbol
-            for asset in self.alpaca_rest_client.list_assets(
-                status="active", asset_class="us_equity"
-            )
-            if asset.tradable
-        ]
+        req = GetAssetsRequest(
+            status=AssetStatus.ACTIVE, asset_class=AssetClass.US_EQUITY
+        )
+        assets = self.trading_client.get_all_assets(req)
+        return [asset.symbol for asset in assets if asset.tradable]
 
     async def get_market_snapshot(
         self, filter_func: Optional[Callable] = None
@@ -66,34 +79,154 @@ class AlpacaData(DataAPI):
     async def _get_symbols_snapshot(
         self, symbols: List[str], filter_func: Optional[Callable]
     ) -> List[Dict]:
-        def _parse_ticker_snapshot(_ticker: str, _ticket_snapshot: object):
+        def _parse_ticker_snapshot(_ticker: str, _snapshot) -> Optional[Dict]:
             try:
-                return {
+                if not _snapshot:
+                    return None
+                res = {
                     "ticker": _ticker,
-                    **{
-                        sub_snapshot_type: _sub_snapshot_obj.__dict__["_raw"]
-                        for sub_snapshot_type, _sub_snapshot_obj in _ticket_snapshot.__dict__.items()
-                    },
+                    "latest_trade": {
+                        "p": _snapshot.latest_trade.price
+                        if _snapshot.latest_trade
+                        else None,
+                        "s": _snapshot.latest_trade.size
+                        if _snapshot.latest_trade
+                        else None,
+                        "t": _snapshot.latest_trade.timestamp
+                        if _snapshot.latest_trade
+                        else None,
+                        "x": getattr(_snapshot.latest_trade, "exchange", None)
+                        if _snapshot.latest_trade
+                        else None,
+                    }
+                    if _snapshot.latest_trade
+                    else None,
+                    "latest_quote": {
+                        "ap": _snapshot.latest_quote.ask_price
+                        if _snapshot.latest_quote
+                        else None,
+                        "as": _snapshot.latest_quote.ask_size
+                        if _snapshot.latest_quote
+                        else None,
+                        "bp": _snapshot.latest_quote.bid_price
+                        if _snapshot.latest_quote
+                        else None,
+                        "bs": _snapshot.latest_quote.bid_size
+                        if _snapshot.latest_quote
+                        else None,
+                        "t": _snapshot.latest_quote.timestamp
+                        if _snapshot.latest_quote
+                        else None,
+                    }
+                    if _snapshot.latest_quote
+                    else None,
+                    "minute_bar": {
+                        "o": _snapshot.minute_bar.open
+                        if _snapshot.minute_bar
+                        else None,
+                        "h": _snapshot.minute_bar.high
+                        if _snapshot.minute_bar
+                        else None,
+                        "l": _snapshot.minute_bar.low
+                        if _snapshot.minute_bar
+                        else None,
+                        "c": _snapshot.minute_bar.close
+                        if _snapshot.minute_bar
+                        else None,
+                        "v": _snapshot.minute_bar.volume
+                        if _snapshot.minute_bar
+                        else None,
+                        "vw": _snapshot.minute_bar.vwap
+                        if _snapshot.minute_bar
+                        else None,
+                        "n": _snapshot.minute_bar.trade_count
+                        if _snapshot.minute_bar
+                        else None,
+                        "t": _snapshot.minute_bar.timestamp
+                        if _snapshot.minute_bar
+                        else None,
+                    }
+                    if _snapshot.minute_bar
+                    else None,
+                    "daily_bar": {
+                        "o": _snapshot.daily_bar.open
+                        if _snapshot.daily_bar
+                        else None,
+                        "h": _snapshot.daily_bar.high
+                        if _snapshot.daily_bar
+                        else None,
+                        "l": _snapshot.daily_bar.low
+                        if _snapshot.daily_bar
+                        else None,
+                        "c": _snapshot.daily_bar.close
+                        if _snapshot.daily_bar
+                        else None,
+                        "v": _snapshot.daily_bar.volume
+                        if _snapshot.daily_bar
+                        else None,
+                        "vw": _snapshot.daily_bar.vwap
+                        if _snapshot.daily_bar
+                        else None,
+                        "n": _snapshot.daily_bar.trade_count
+                        if _snapshot.daily_bar
+                        else None,
+                        "t": _snapshot.daily_bar.timestamp
+                        if _snapshot.daily_bar
+                        else None,
+                    }
+                    if _snapshot.daily_bar
+                    else None,
+                    "prev_daily_bar": {
+                        "o": _snapshot.previous_daily_bar.open
+                        if _snapshot.previous_daily_bar
+                        else None,
+                        "h": _snapshot.previous_daily_bar.high
+                        if _snapshot.previous_daily_bar
+                        else None,
+                        "l": _snapshot.previous_daily_bar.low
+                        if _snapshot.previous_daily_bar
+                        else None,
+                        "c": _snapshot.previous_daily_bar.close
+                        if _snapshot.previous_daily_bar
+                        else None,
+                        "v": _snapshot.previous_daily_bar.volume
+                        if _snapshot.previous_daily_bar
+                        else None,
+                        "vw": _snapshot.previous_daily_bar.vwap
+                        if _snapshot.previous_daily_bar
+                        else None,
+                        "n": _snapshot.previous_daily_bar.trade_count
+                        if _snapshot.previous_daily_bar
+                        else None,
+                        "t": _snapshot.previous_daily_bar.timestamp
+                        if _snapshot.previous_daily_bar
+                        else None,
+                    }
+                    if _snapshot.previous_daily_bar
+                    else None,
                 }
-            # skip over if some snapshot type is missing (e.g. "prev_daily_bar": None)
-            except AttributeError:
+                if (
+                    res["latest_trade"] is None
+                    or res["daily_bar"] is None
+                    or res["prev_daily_bar"] is None
+                ):
+                    return None
+                return res
+            except Exception:
                 return None
 
         def _parse_snapshot_and_filter(_symbols: List[str]) -> List[Dict]:
-            processed_tickers_snapshot = map(
-                lambda key_and_val: _parse_ticker_snapshot(*key_and_val),
-                self.alpaca_rest_client.get_snapshots(_symbols).items(),
-            )
-            return list(
-                filter(
-                    lambda snapshot: (  # type: ignore
-                        (snapshot is not None) and (filter_func(snapshot))
-                    ),
-                    list(processed_tickers_snapshot),  # type : ignore
-                )
-                if filter_func is not None
-                else processed_tickers_snapshot
-            )
+            req = StockSnapshotRequest(symbol_or_symbols=_symbols)
+            snapshots = self.stock_historical_client.get_stock_snapshot(req)
+            processed_tickers_snapshot = [
+                _parse_ticker_snapshot(k, v) for k, v in snapshots.items()
+            ]
+            return [
+                s
+                for s in processed_tickers_snapshot
+                if s is not None
+                and (filter_func(s) if filter_func is not None else True)
+            ]
 
         # request snapshots per chunk of tickers by concurrency
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -132,21 +265,22 @@ class AlpacaData(DataAPI):
         )
 
     def get_last_trading(self, symbol: str) -> datetime:
-        if not self.alpaca_rest_client:
-            raise AssertionError("Must call w/ authenticated Alpaca client")
-
         if _is_crypto_symbol(symbol):
             return datetime.now(tz=nytz)
         try:
-            snapshot_data = self.alpaca_rest_client.get_snapshot(symbol)
-        except APIError as e:
+            req = StockLatestTradeRequest(symbol_or_symbols=symbol)
+            trade_data = self.stock_historical_client.get_stock_latest_trade(
+                req
+            )
+            if isinstance(trade_data, dict) and symbol in trade_data:
+                trade = trade_data[symbol]
+            else:
+                trade = trade_data
+            if not trade or not hasattr(trade, "timestamp"):
+                raise ValueError(f"Can't get snapshot for {symbol}")
+            return trade.timestamp
+        except Exception as e:
             raise ValueError(f"{symbol} snapshot not found") from e
-
-        min_bar = snapshot_data.latest_trade
-        if not min_bar:
-            raise ValueError(f"Can't get snapshot for {symbol}")
-
-        return min_bar.t
 
     def get_trading_holidays(self) -> List[str]:
         nyse = pandas_market_calendars.get_calendar("NYSE")
@@ -191,13 +325,9 @@ class AlpacaData(DataAPI):
         )
 
     def get_max_data_points_per_load(self) -> int:
-        # Alpaca suggests 10000 points
         return 10000
 
     def trading_days_slice(self, symbol: str, s: slice) -> slice:
-        if not self.alpaca_rest_client:
-            raise AssertionError("Must call w/ authenticated Alpaca client")
-
         if _is_crypto_symbol(symbol):
             return s
 
@@ -206,18 +336,21 @@ class AlpacaData(DataAPI):
                 self.datetime_cache[s.start], self.datetime_cache[s.stop]
             )
 
-        trading_days = self.alpaca_rest_client.get_calendar(
-            str(s.start.date()), str(s.stop.date())
+        trading_days = self.trading_client.get_calendar(
+            GetCalendarRequest(start=s.start.date(), end=s.stop.date())
         )
+        if not trading_days:
+            return s
+
         new_slice = slice(
             nytz.localize(
                 datetime.combine(
-                    trading_days[0].date.date(), trading_days[0].open
+                    trading_days[0].date, trading_days[0].open.time()
                 )
             ),
             nytz.localize(
                 datetime.combine(
-                    trading_days[-1].date.date(), trading_days[-1].open
+                    trading_days[-1].date, trading_days[-1].open.time()
                 )
             ),
         )
@@ -230,63 +363,49 @@ class AlpacaData(DataAPI):
     def crypto_get_symbol_data(
         self,
         symbol: str,
-        start: str,
-        end: str,
-        timeframe: TimeFrame,
+        start: date,
+        end: date,
+        scale: TimeScale = TimeScale.minute,
     ) -> pd.DataFrame:
+        tf = TimeFrame.Minute if scale == TimeScale.minute else TimeFrame.Day
         if "/" not in symbol:
             symbol = f"{symbol[:3]}/{symbol[3:]}"
         symbol = symbol.upper()
-        url = f"{config.alpaca_crypto_base_url}/bars"
-        page_token = None
-
-        rc_df = pd.DataFrame()
-
-        while True:
-            response = requests.get(
-                url,
-                params={  # type:ignore
-                    "symbols": [symbol],
-                    "start": start,
-                    "end": end,
-                    "limit": self.get_max_data_points_per_load(),
-                    "timeframe": "1Day"
-                    if timeframe == TimeFrame.Day
-                    else "1Min",
-                    "page_token": page_token,
-                },
-                headers={
-                    "APCA-API-KEY-ID": config.alpaca_api_key,
-                    "APCA-API-SECRET-KEY": config.alpaca_api_secret,
-                },
+        _start, _end = self._localize_start_end(start, end)
+        req = CryptoBarsRequest(
+            symbol_or_symbols=symbol,
+            timeframe=tf,
+            start=date_parser(_start),
+            end=date_parser(_end),
+        )
+        bars = self.crypto_historical_client.get_crypto_bars(req)
+        data = bars.df
+        if data.empty:
+            raise ValueError(
+                f"{symbol} has no crypto data for {start} to {end}"
             )
-
-            response.raise_for_status()
-
-            json_data = response.json()
-            df = pd.DataFrame(json_data["bars"][symbol])
-            df.rename(
-                columns={
-                    "o": "open",
-                    "c": "close",
-                    "h": "high",
-                    "l": "low",
-                    "v": "volume",
-                    "vw": "vwap",
-                    "t": "timestamp",
-                    "n": "trade_count",
-                },
-                inplace=True,
+        if isinstance(data.index, pd.MultiIndex):
+            data = (
+                data.xs(symbol, level="symbol")
+                if symbol in data.index.levels[0]
+                else data.reset_index(level=0, drop=True)
             )
-            df["timestamp"] = pd.to_datetime(df.timestamp)
-            df = df.set_index(df.timestamp)
-
-            rc_df = pd.concat([rc_df, df], sort=True)
-            rc_df = rc_df[~rc_df.index.duplicated(keep="first")]
-
-            page_token = json_data["next_page_token"]
-            if page_token is None:
-                return rc_df
+        data.index = pd.to_datetime(data.index).tz_convert("America/New_York")
+        data["average"] = data.vwap
+        data["count"] = data.trade_count
+        data["vwap"] = np.nan
+        return data[
+            [
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "count",
+                "average",
+                "vwap",
+            ]
+        ]
 
     def get_symbols_data(
         self,
@@ -295,8 +414,6 @@ class AlpacaData(DataAPI):
         end: date = date.today(),
         scale: TimeScale = TimeScale.minute,
     ) -> Dict[str, pd.DataFrame]:
-        if not self.alpaca_rest_client:
-            raise AssertionError("Must call w/ authenticated Alpaca client")
         if not isinstance(symbols, list):
             raise AssertionError(f"{symbols} must be a list")
 
@@ -304,7 +421,7 @@ class AlpacaData(DataAPI):
             end += timedelta(days=1)
         _start, _end = self._localize_start_end(start, end)
         dfs: Dict = {}
-        t: TimeFrame = (
+        tf: TimeFrame = (
             TimeFrame.Minute
             if scale == TimeScale.minute
             else TimeFrame.Day
@@ -312,39 +429,69 @@ class AlpacaData(DataAPI):
             else None
         )
         try:
-            data = self.alpaca_rest_client.get_bars(
-                symbol=symbols,
-                timeframe=t,
-                start=_start,
-                end=_end,
-                limit=1000000000,
-                adjustment="all",
-            ).df
+            req = StockBarsRequest(
+                symbol_or_symbols=symbols,
+                timeframe=tf,
+                start=date_parser(_start),
+                end=date_parser(_end),
+                adjustment=Adjustment.ALL,
+            )
+            bars = self.stock_historical_client.get_stock_bars(req)
+            data = bars.df
         except requests.exceptions.HTTPError as e:
             tlog(f"received HTTPError: {e}")
             if e.response.status_code in (500, 502, 504, 429):
                 tlog("retrying")
                 time.sleep(10)
                 return self.get_symbols_data(symbols, start, end, scale)
+            raise
 
-        data = data.tz_convert("America/New_York")
-        data["average"] = data.vwap
-        data["count"] = data.trade_count
-        data["vwap"] = np.NaN
-        grouped = data.groupby(data.symbol)
-        for symbol in data.symbol.unique():
-            dfs[symbol] = grouped.get_group(symbol)[
-                [
-                    "open",
-                    "high",
-                    "low",
-                    "close",
-                    "volume",
-                    "count",
-                    "average",
-                    "vwap",
+        if data.empty:
+            return dfs
+
+        if isinstance(data.index, pd.MultiIndex):
+            data = data.reset_index()
+            data["timestamp"] = pd.to_datetime(data["timestamp"]).dt.tz_convert(
+                "America/New_York"
+            )
+            data = data.set_index("timestamp")
+            data["average"] = data.vwap
+            data["count"] = data.trade_count
+            data["vwap"] = np.nan
+            grouped = data.groupby("symbol")
+            for symbol in data["symbol"].unique():
+                dfs[symbol] = grouped.get_group(symbol)[
+                    [
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "count",
+                        "average",
+                        "vwap",
+                    ]
                 ]
-            ]
+        else:
+            data.index = pd.to_datetime(data.index).tz_convert(
+                "America/New_York"
+            )
+            data["average"] = data.vwap
+            data["count"] = data.trade_count
+            data["vwap"] = np.nan
+            if len(symbols) == 1:
+                dfs[symbols[0]] = data[
+                    [
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "count",
+                        "average",
+                        "vwap",
+                    ]
+                ]
 
         return dfs
 
@@ -355,12 +502,14 @@ class AlpacaData(DataAPI):
         end: date = date.today(),
         scale: TimeScale = TimeScale.minute,
     ) -> pd.DataFrame:
+        if _is_crypto_symbol(symbol):
+            return self.crypto_get_symbol_data(
+                symbol=symbol, start=start, end=end, scale=scale
+            )
+
         _start, _end = self._localize_start_end(start, end)
 
-        if not self.alpaca_rest_client:
-            raise AssertionError("Must call w/ authenticated Alpaca client")
-
-        t: TimeFrame = (
+        tf: TimeFrame = (
             TimeFrame.Minute
             if scale == TimeScale.minute
             else TimeFrame.Day
@@ -370,22 +519,19 @@ class AlpacaData(DataAPI):
 
         try:
             if config.detailed_dl_debug_enabled:
-                tlog(f"symbol={symbol}, timeframe={t}, range=({_start, _end})")
-
-            data = (
-                self.crypto_get_symbol_data(
-                    symbol=symbol, start=_start, end=_end, timeframe=t
+                tlog(
+                    f"symbol={symbol}, timeframe={tf}, range=({_start, _end})"
                 )
-                if _is_crypto_symbol(symbol)
-                else self.alpaca_rest_client.get_bars(
-                    symbol=symbol,
-                    timeframe=t,
-                    start=_start,
-                    end=_end,
-                    limit=1000000,
-                    adjustment="all",
-                ).df
+
+            req = StockBarsRequest(
+                symbol_or_symbols=symbol,
+                timeframe=tf,
+                start=date_parser(_start),
+                end=date_parser(_end),
+                adjustment=Adjustment.ALL,
             )
+            bars = self.stock_historical_client.get_stock_bars(req)
+            data = bars.df
         except requests.exceptions.HTTPError as e:
             tlog(f"received HTTPError: {e}")
             if e.response.status_code in (500, 502, 504, 429):
@@ -396,7 +542,6 @@ class AlpacaData(DataAPI):
                 raise ValueError(
                     f"[EXCEPTION] {e} for {symbol} could not obtain data for {_start} to {_end} w {scale.name}"
                 )
-
         except Exception as e:
             raise ValueError(
                 f"[EXCEPTION] {e} for {symbol} has no data for {_start} to {_end} w {scale.name}"
@@ -407,10 +552,17 @@ class AlpacaData(DataAPI):
                     f"[ERROR] {symbol} has no data for {_start} to {_end} w {scale.name}"
                 )
 
-        data.index = data.index.tz_convert("America/New_York")
+        if isinstance(data.index, pd.MultiIndex):
+            data = (
+                data.xs(symbol, level="symbol")
+                if symbol in data.index.levels[0]
+                else data.reset_index(level=0, drop=True)
+            )
+
+        data.index = pd.to_datetime(data.index).tz_convert("America/New_York")
         data["average"] = data.vwap
         data["count"] = data.trade_count
-        data["vwap"] = np.NaN
+        data["vwap"] = np.nan
 
         return data[
             [
@@ -428,26 +580,39 @@ class AlpacaData(DataAPI):
 
 class AlpacaStream(StreamingAPI):
     def __init__(self, queues: QueueMapper):
-        self.alpaca_ws_client = Stream(
-            base_url=URL(config.alpaca_base_url),
-            key_id=config.alpaca_api_key,
-            secret_key=config.alpaca_api_secret,
-            data_feed=config.alpaca_data_feed,
+        data_feed = (
+            DataFeed.SIP
+            if getattr(config, "alpaca_data_feed", "iex").lower() == "sip"
+            else DataFeed.DELAYED_SIP
+            if getattr(config, "alpaca_data_feed", "iex").lower()
+            == "delayed_sip"
+            else DataFeed.OTC
+            if getattr(config, "alpaca_data_feed", "iex").lower() == "otc"
+            else DataFeed.IEX
+        )
+        api_key = config.alpaca_api_key or "PKDUMMYKEY00000000000"
+        secret_key = config.alpaca_api_secret or "SKDUMMYSECRET000000000000000000000000"
+        self.stock_ws_client = StockDataStream(
+            api_key=api_key,
+            secret_key=secret_key,
+            feed=data_feed,
+        )
+        self.crypto_ws_client = CryptoDataStream(
+            api_key=api_key,
+            secret_key=secret_key,
         )
 
-        if not self.alpaca_ws_client:
-            raise AssertionError(
-                "Failed to authenticate Alpaca web_socket client"
-            )
-
-        self.task: Optional[asyncio.Task] = None
+        self.tasks: List[asyncio.Task] = []
         super().__init__(queues)
 
     async def run(self):
-        if not self.task:
+        if not self.tasks:
             if self.queues:
-                self.task = asyncio.create_task(
-                    self.alpaca_ws_client._run_forever()
+                self.tasks.append(
+                    asyncio.create_task(self.stock_ws_client._run_forever())
+                )
+                self.tasks.append(
+                    asyncio.create_task(self.crypto_ws_client._run_forever())
                 )
             else:
                 raise AssertionError(
@@ -467,7 +632,7 @@ class AlpacaStream(StreamingAPI):
                     msg.timestamp, utc=True
                 ).astimezone(nytz),
                 "volume": msg.volume,
-                "count": int(msg.trade_count),
+                "count": int(msg.trade_count or 0),
                 "vwap": np.nan,
                 "average": msg.vwap,
                 "totalvolume": None,
@@ -489,7 +654,7 @@ class AlpacaStream(StreamingAPI):
     @classmethod
     async def crypto_bar_handler(cls, msg):
         try:
-            if msg.exchange != "CBSE":
+            if getattr(msg, "exchange", None) and msg.exchange != "CBSE":
                 return
 
             event = {
@@ -502,7 +667,7 @@ class AlpacaStream(StreamingAPI):
                     msg.timestamp, utc=True
                 ).astimezone(nytz),
                 "volume": msg.volume,
-                "count": int(msg.trade_count),
+                "count": int(msg.trade_count or 0),
                 "vwap": np.nan,
                 "average": msg.vwap,
                 "totalvolume": None,
@@ -536,18 +701,16 @@ class AlpacaStream(StreamingAPI):
 
             event = {
                 "symbol": msg.symbol,
-                "price": msg.price,
-                "open": msg.price,
-                "close": msg.price,
-                "high": msg.price,
-                "low": msg.price,
+                "price": float(msg.price),
+                "open": float(msg.price),
+                "close": float(msg.price),
+                "high": float(msg.price),
+                "low": float(msg.price),
                 "timestamp": ts,
-                "volume": msg.size,
-                "exchange": msg.exchange,
-                "conditions": msg.conditions
-                if hasattr(msg, "conditions")
-                else None,
-                "tape": msg.tape if hasattr(msg, "tape") else None,
+                "volume": float(msg.size),
+                "exchange": getattr(msg, "exchange", None),
+                "conditions": getattr(msg, "conditions", None),
+                "tape": getattr(msg, "tape", None),
                 "average": np.nan,
                 "count": 1,
                 "vwap": np.nan,
@@ -571,7 +734,7 @@ class AlpacaStream(StreamingAPI):
     @classmethod
     async def crypto_trades_handler(cls, msg):
         try:
-            if msg.exchange != "CBSE":
+            if getattr(msg, "exchange", None) and msg.exchange != "CBSE":
                 return
 
             ts = pd.to_datetime(msg.timestamp)
@@ -586,18 +749,16 @@ class AlpacaStream(StreamingAPI):
 
             event = {
                 "symbol": msg.symbol,
-                "price": msg.price,
-                "open": msg.price,
-                "close": msg.price,
-                "high": msg.price,
-                "low": msg.price,
+                "price": float(msg.price),
+                "open": float(msg.price),
+                "close": float(msg.price),
+                "high": float(msg.price),
+                "low": float(msg.price),
                 "timestamp": ts,
-                "volume": msg.size,
-                "exchange": msg.exchange,
-                "conditions": msg.conditions
-                if hasattr(msg, "conditions")
-                else None,
-                "tape": msg.tape if hasattr(msg, "tape") else None,
+                "volume": float(msg.size),
+                "exchange": getattr(msg, "exchange", None),
+                "conditions": getattr(msg, "conditions", None),
+                "tape": getattr(msg, "tape", None),
                 "average": np.nan,
                 "count": 1,
                 "vwap": np.nan,
@@ -635,34 +796,32 @@ class AlpacaStream(StreamingAPI):
 
             for event in events:
                 if event == WSEventType.MIN_AGG:
-                    self.alpaca_ws_client._data_ws._running = False
-
                     if crypto_symbols:
-                        self.alpaca_ws_client.subscribe_crypto_bars(
+                        self.crypto_ws_client.subscribe_bars(
                             AlpacaStream.crypto_bar_handler,
                             *crypto_symbols,
                         )
                     if equity_symbols:
-                        self.alpaca_ws_client.subscribe_bars(
+                        self.stock_ws_client.subscribe_bars(
                             AlpacaStream.bar_handler,
                             *equity_symbols,
                         )
                 elif event == WSEventType.TRADE:
                     if crypto_symbols:
-                        self.alpaca_ws_client.subscribe_crypto_trades(
+                        self.crypto_ws_client.subscribe_trades(
                             AlpacaStream.crypto_trades_handler, *crypto_symbols
                         )
                     if equity_symbols:
-                        self.alpaca_ws_client.subscribe_trades(
+                        self.stock_ws_client.subscribe_trades(
                             AlpacaStream.trades_handler, *equity_symbols
                         )
                 elif event == WSEventType.QUOTE:
                     if crypto_symbols:
-                        self.alpaca_ws_client.subscribe_crypto_quotes(
+                        self.crypto_ws_client.subscribe_quotes(
                             AlpacaStream.quotes_handler, *crypto_symbols
                         )
                     if equity_symbols:
-                        self.alpaca_ws_client.subscribe_quotes(
+                        self.stock_ws_client.subscribe_quotes(
                             AlpacaStream.quotes_handler, *equity_symbols
                         )
 
@@ -673,13 +832,17 @@ class AlpacaStream(StreamingAPI):
 
     async def close(self) -> None:
         tlog("Closing AlpacaStream")
+        try:
+            await self.stock_ws_client.stop_ws()
+        except Exception as e:
+            tlog(f"Error stopping stock_ws: {e}")
+        try:
+            await self.crypto_ws_client.stop_ws()
+        except Exception as e:
+            tlog(f"Error stopping crypto_ws: {e}")
 
-        if self.task:
-            # self.alpaca_ws_client.stop()
+        for task in self.tasks:
+            while not task.done():
+                await asyncio.sleep(0.5)
 
-            await self.alpaca_ws_client.stop_ws()
-
-            while not self.task.done():
-                await asyncio.sleep(1.0)
-
-            tlog("Task Done. Closed AlpacaStream")
+        tlog("Tasks Done. Closed AlpacaStream")

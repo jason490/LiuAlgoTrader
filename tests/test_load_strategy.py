@@ -16,6 +16,7 @@ def event_loop():
 
 
 @pytest.mark.asyncio
+@pytest.mark.devtest
 async def test_get_strategy():
     s = await Strategy.get_strategy(
         batch_id=str(uuid.uuid4()),

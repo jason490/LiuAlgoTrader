@@ -4,6 +4,7 @@ from liualgotrader.common.database import create_db_connection
 from liualgotrader.data.alpaca import AlpacaData
 
 
+@pytest.mark.devtest
 def test_get_trading_day():
     alpaca_data = AlpacaData()
 

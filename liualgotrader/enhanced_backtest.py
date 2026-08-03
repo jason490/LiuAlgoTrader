@@ -5,7 +5,8 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
-import alpaca_trade_api as tradeapi
+from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import GetCalendarRequest
 import pandas as pd
 from pytz import timezone
 
@@ -426,11 +427,15 @@ async def backtest_time_range(
     scanners: Optional[List] = None,
     strategies: Optional[List] = None,
 ):
-    trade_api = tradeapi.REST(
-        key_id=config.alpaca_api_key, secret_key=config.alpaca_api_secret
+    trading_client = TradingClient(
+        api_key=config.alpaca_api_key,
+        secret_key=config.alpaca_api_secret,
+        paper=True,
     )
     if asset_type == AssetType.US_EQUITIES:
-        calendars = trade_api.get_calendar(str(from_date), str(to_date))
+        calendars = trading_client.get_calendar(
+            GetCalendarRequest(start=from_date, end=to_date)
+        )
     elif asset_type == AssetType.CRYPTO:
         calendars = [
             t.date() for t in pd.date_range(from_date, to_date).to_list()

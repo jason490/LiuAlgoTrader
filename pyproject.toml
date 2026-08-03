@@ -16,14 +16,14 @@ dependencies = [
   "deprecated",
   "urllib3",
   "numpy",
-  "alpaca-trade-api",
+  "alpaca-py",
   "asyncpg",
   "pygit2",
   "matplotlib",
   "tabulate",
   "streamlit",
   "stockstats",
-  "empyrical",
+  "empyrical-reloaded",
   "nest-asyncio",
   "parsedatetime",
   "scipy",
@@ -36,6 +36,7 @@ dependencies = [
   "pandas-market-calendars",
   "psutil",
   "aiohttp>=3.8.3",
+  "websocket-client",
 ]
 description = "a Pythonic all-batteries-included framework for effective algorithmic trading. The framework is intended to simplify development, testing, deployment and evaluating algo trading strategies."
 license = {text = "MIT"}
@@ -83,5 +84,5 @@ write_to = "liualgotrader/__version__.py"
 excludes = ["tests"]
 
 [build-system]
-build-backend = "pdm.pep517.api"
-requires = ["pdm-pep517"]
+build-backend = "pdm.backend"
+requires = ["pdm-backend"]

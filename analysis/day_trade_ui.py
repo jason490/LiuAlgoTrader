@@ -3,7 +3,6 @@ import json
 from datetime import date, datetime, timedelta
 from typing import Dict
 
-import alpaca_trade_api as tradeapi
 import matplotlib.pyplot as plt
 import nest_asyncio
 import pandas as pd
@@ -14,6 +13,7 @@ import streamlit as st
 from liualgotrader.analytics.analysis import (calc_batch_revenue, count_trades,
                                               load_runs, load_trades)
 from liualgotrader.common import database
+from liualgotrader.common.data_loader import DataLoader
 
 st.title("Day-trade Session Analysis")
 st.markdown(
@@ -115,13 +115,11 @@ for element in how_was_my_day:
     st.markdown(element[1].to_html(), unsafe_allow_html=True)
 
 if st.sidebar.checkbox("Show details"):
-    session = requests.session()
-    api = tradeapi.REST(base_url="https://api.alpaca.markets")
-
     minute_history = {}
+    data_loader = DataLoader()
 
     c = 0
-    with st.spinner(text="Loading historical data from Polygon..."):
+    with st.spinner(text="Loading historical data..."):
         for batch_id, count in batch.items():
             for run_id in batch[batch_id]:
                 symbols = trades.loc[trades["algo_run_id"] == run_id][
@@ -129,13 +127,7 @@ if st.sidebar.checkbox("Show details"):
                 ].value_counts()
                 for symbol, count in symbols.items():
                     if symbol not in minute_history:
-                        minute_history[symbol] = api.polygon.historic_agg_v2(
-                            symbol,
-                            1,
-                            "minute",
-                            _from=day_to_analyze - timedelta(days=7),
-                            to=day_to_analyze + timedelta(days=1),
-                        ).df.tz_convert("US/Eastern")
+                        minute_history[symbol] = data_loader[symbol]
                         c += 1
     st.success(f"LOADED {c} symbols' data!")
 

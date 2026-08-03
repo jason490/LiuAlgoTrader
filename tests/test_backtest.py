@@ -22,6 +22,7 @@ def event_loop():
 
 
 @pytest.mark.asyncio
+@pytest.mark.devtest
 async def test_backtest_day():
     print("*** test_backtest_day ***")
     config.debug_enabled = False
@@ -70,6 +71,7 @@ async def test_backtest_day():
 
 
 @pytest.mark.asyncio
+@pytest.mark.devtest
 async def test_backtest_min():
     print("*** test_backtest_min ***")
     config.debug_enabled = False

@@ -19,6 +19,7 @@ def event_loop():
 
 
 @pytest.mark.asyncio
+@pytest.mark.devtest
 async def test_scanner_alpaca() -> bool:
     print("test_scanner_alpaca")
 

@@ -3,7 +3,6 @@ from datetime import date, datetime, timedelta
 from typing import Callable, List, Optional, Tuple
 
 import requests
-from alpaca_trade_api.rest import REST as tradeapi
 from pytz import timezone
 
 from liualgotrader.common import config

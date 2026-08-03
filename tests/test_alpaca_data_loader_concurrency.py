@@ -11,6 +11,7 @@ from liualgotrader.common.types import DataConnectorType, TimeScale
 nyc = timezone("America/New_York")
 
 
+@pytest.mark.devtest
 def test_stock_price_range_date_min() -> bool:
     print("test_stock_price_range_date_min")
     dl = DataLoader(TimeScale.minute, connector=DataConnectorType.alpaca)

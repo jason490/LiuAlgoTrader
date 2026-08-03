@@ -5,8 +5,6 @@ from json.decoder import JSONDecodeError
 from typing import Dict, List, Optional
 
 import requests
-from alpaca_trade_api.common import get_polygon_credentials
-from alpaca_trade_api.polygon.entity import Ticker
 
 from liualgotrader.common import config
 from liualgotrader.common.decorators import timeit
@@ -67,12 +65,15 @@ class StockCluster(Miner):
 
         return True
 
+    def _get_polygon_api_key(self) -> str:
+        return config.polygon_api_key or config.prod_api_key_id or ""
+
     def _get_count(self, session) -> int:
         url = "https://api.polygon.io/" + "v2" + "/reference/tickers"
         with session.get(
             url,
             params={
-                "apiKey": get_polygon_credentials(config.prod_api_key_id),
+                "apiKey": self._get_polygon_api_key(),
                 "market": "STOCKS",
                 "page": 1,
                 "active": "true",
@@ -82,13 +83,13 @@ class StockCluster(Miner):
             response.raise_for_status()
             return response.json()["count"]
 
-    def _fetch(self, session: requests.Session, page: int) -> List[Ticker]:
+    def _fetch(self, session: requests.Session, page: int) -> List[str]:
         url = "https://api.polygon.io/" + "v2" + "/reference/tickers"
         try:
             with session.get(
                 url,
                 params={
-                    "apiKey": get_polygon_credentials(config.prod_api_key_id),
+                    "apiKey": self._get_polygon_api_key(),
                     "market": "STOCKS",
                     "page": page,
                     "active": "true",
@@ -96,7 +97,7 @@ class StockCluster(Miner):
                 },
             ) as response:
                 data = response.json()["tickers"]
-                return [Ticker(x) for x in data]
+                return [x.get("ticker", "") if isinstance(x, dict) else str(x) for x in data]
         except requests.exceptions.ConnectionError as e:
             tlog(
                 f"_fetch(): got HTTP exception {e}, for {page}, going to sleep, then retry"
@@ -105,7 +106,7 @@ class StockCluster(Miner):
             return self._fetch(requests.Session(), page)
 
     async def _update_ticker_details(self, ticker_info: Dict) -> None:
-        if ticker_info["active"] is False:
+        if ticker_info.get("active") is False:
             return
 
         ticker_data = TickerData(
@@ -125,29 +126,30 @@ class StockCluster(Miner):
             return await self._update_ticker_details(ticker_info)
 
     def _fetch_symbol_details(
-        self, session: requests.Session, ticker: Ticker
+        self, session: requests.Session, ticker: str
     ) -> Optional[Dict]:
+        ticker_symbol = ticker if isinstance(ticker, str) else getattr(ticker, "ticker", str(ticker))
         url = (
-            "https://api.polygon.io/" + "v1" + f"/meta/symbols/{ticker.ticker}/company"
+            "https://api.polygon.io/" + "v1" + f"/meta/symbols/{ticker_symbol}/company"
         )
 
         try:
             with session.get(
                 url,
-                params={"apiKey": get_polygon_credentials(config.prod_api_key_id)},
+                params={"apiKey": self._get_polygon_api_key()},
             ) as response:
                 if response.status_code == 200:
                     try:
                         r = response.json()
-                        if r["active"]:
+                        if r.get("active"):
                             return r
                     except JSONDecodeError:
-                        tlog(f"JSONDecodeError for {ticker.ticker}")
+                        tlog(f"JSONDecodeError for {ticker_symbol}")
                         raise Exception(response.text)
 
         except requests.exceptions.ConnectionError as e:
             tlog(
-                f"_fetch_symbol_details(): got HTTP exception {e} for {ticker.ticker}, going to sleep, then retry"
+                f"_fetch_symbol_details(): got HTTP exception {e} for {ticker_symbol}, going to sleep, then retry"
             )
             time.sleep(30)
             return self._fetch_symbol_details(requests.Session(), ticker)

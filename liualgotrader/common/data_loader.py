@@ -3,7 +3,6 @@ import concurrent.futures
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
-import alpaca_trade_api as tradeapi
 import pandas as pd
 from dateutil.parser import parse as date_parser
 from pytz import timezone
@@ -522,7 +521,7 @@ class SymbolData:
 
     def __init__(
         self,
-        data_api: tradeapi,
+        data_api: DataAPI,
         symbol: str,
         scale: TimeScale,
         concurrency: int,

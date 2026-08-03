@@ -24,7 +24,6 @@ When developing your scanner, you first need to import base-class `Scanner`:
 
 .. code-block:: python
 
-   import alpaca_trade_api as tradeapi
    from liualgotrader.scanners.base import Scanner
 
 Creating a scanner involves:

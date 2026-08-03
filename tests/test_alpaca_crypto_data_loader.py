@@ -2,7 +2,6 @@ from datetime import date, timedelta
 
 import pandas as pd
 import pytest
-from alpaca_trade_api.rest import TimeFrame
 from pytz import timezone
 
 from liualgotrader.common import config
@@ -19,9 +18,8 @@ def test_crypto_get_symbol() -> bool:
 
     start = date(2021, 5, 1)
     end = date(2021, 10, 1)
-    _start, _end = alpaca_data._localize_start_end(start, end)
     df = alpaca_data.crypto_get_symbol_data(
-        symbol="BTCUSD", start=_start, end=_end, timeframe=TimeFrame.Day
+        symbol="BTCUSD", start=start, end=end, scale=TimeScale.day
     )
     print(df)
     return True

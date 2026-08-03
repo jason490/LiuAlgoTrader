@@ -16,6 +16,7 @@ def event_loop():
 
 
 @pytest.mark.asyncio
+@pytest.mark.devtest
 async def test_get_scanner():
     dl = DataLoader()
     s = await Scanner.get_scanner(

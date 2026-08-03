@@ -49,6 +49,7 @@ def test_alpaca_get_symbols() -> bool:
 
 
 @pytest.mark.asyncio
+@pytest.mark.devtest
 async def test_alpaca_get_market_snapshot() -> bool:
     alpaca = AlpacaData()
 

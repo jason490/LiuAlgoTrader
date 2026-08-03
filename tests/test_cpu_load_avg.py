@@ -7,6 +7,7 @@ from liualgotrader.common import config
 from liualgotrader.common.concurrency import calc_num_consumer_processes
 
 
+@pytest.mark.devtest
 def test_load_cpu_avg():
     print("test_load_cpu_avg")
     cpu_load = psutil.cpu_percent(interval=5)
@@ -31,6 +32,7 @@ def test_fix_num_consumer_processes():
             )
 
 
+@pytest.mark.devtest
 def test_calc_num_consumer_processes():
     print("test_calc_num_consumer_processes")
 

@@ -149,9 +149,8 @@ async def periodic_runner(data_loader: DataLoader, trader: Trader) -> None:
                     skip = not await s.should_run_all()
                 except Exception:
                     skip = True
-                finally:
-                    if skip:
-                        continue
+                if skip:
+                    continue
 
                 symbols = [
                     symbol.lower()

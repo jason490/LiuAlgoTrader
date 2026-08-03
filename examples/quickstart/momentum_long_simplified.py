@@ -3,7 +3,6 @@ import sys
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
-import alpaca_trade_api as tradeapi
 from pandas import DataFrame as df
 from stockstats import StockDataFrame
 

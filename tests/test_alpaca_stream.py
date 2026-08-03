@@ -25,6 +25,7 @@ def listener(q: Queue):
 
 
 @pytest.mark.asyncio
+@pytest.mark.devtest
 async def test_crypto_stream():
     global stop
     queues = QueueMapper()
